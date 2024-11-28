@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify
 import pandas as pd
 from flask_cors import CORS
 import ast
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -15,31 +17,36 @@ movies_data['parsed_genres'] = movies_data['genres'].apply(
     lambda x: [genre['name'] for genre in ast.literal_eval(x)] if pd.notnull(x) else []
 )
 
-# Function to recommend top 10 movies based on genres of an input movie
+# Combine genres into a single string for vectorization
+movies_data['genre_string'] = movies_data['parsed_genres'].apply(lambda x: ' '.join(x))
+
+# Create a genre-based vector representation using CountVectorizer
+vectorizer = CountVectorizer(tokenizer=lambda x: x.split(), binary=True)
+genre_matrix = vectorizer.fit_transform(movies_data['genre_string'])
+
+# Function to recommend top N movies based on cosine similarity
 def recommend_by_movie_name(movie_name, top_n=10):
     # Check if the movie exists in the dataset
     if movie_name not in movies_data['title'].values:
         return None, f"Movie '{movie_name}' not found in the dataset."
     
-    # Get genres of the input movie
-    input_movie_genres = movies_data[movies_data['title'] == movie_name]['parsed_genres'].values[0]
+    # Get the index of the input movie
+    movie_index = movies_data[movies_data['title'] == movie_name].index[0]
     
-    # Filter movies that share at least one genre with the input movie
-    filtered_movies = movies_data[movies_data['parsed_genres'].apply(
-        lambda genres: any(genre in input_movie_genres for genre in genres)
-    )]
+    # Compute cosine similarity between the input movie and all other movies
+    cosine_sim = cosine_similarity(genre_matrix[movie_index], genre_matrix).flatten()
     
-    # Sort movies by rating (vote_average), breaking ties with popularity
-    sorted_movies = filtered_movies.sort_values(
-        by=['vote_average', 'popularity'], ascending=[False, False]
-    )
+    # Get similarity scores with their indices, excluding the input movie
+    similarity_scores = list(enumerate(cosine_sim))
+    similarity_scores = sorted(similarity_scores, key=lambda x: x[1], reverse=True)
     
-    # Exclude the input movie from the recommendations
-    sorted_movies = sorted_movies[sorted_movies['title'] != movie_name]
+    # Select the top N movies, excluding the input movie itself
+    top_similar_movies = [
+        movies_data.iloc[i][['title', 'vote_average', 'popularity']].to_dict()
+        for i, score in similarity_scores[1:top_n + 1]
+    ]
     
-    # Select the top N movies
-    top_movies = sorted_movies[['title', 'vote_average', 'popularity']].head(top_n)
-    return top_movies.to_dict(orient='records'), None
+    return top_similar_movies, None
 
 # Define API route
 @app.route('/recommend', methods=['GET'])
