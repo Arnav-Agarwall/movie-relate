@@ -21,7 +21,7 @@ movies_data['parsed_genres'] = movies_data['genres'].apply(
 movies_data['genre_string'] = movies_data['parsed_genres'].apply(lambda x: ' '.join(x))
 
 # Create a genre-based vector representation using CountVectorizer
-vectorizer = CountVectorizer(tokenizer=lambda x: x.split(), binary=True)
+vectorizer = CountVectorizer(tokenizer=lambda x: x.split(), binary=True, token_pattern=None)
 genre_matrix = vectorizer.fit_transform(movies_data['genre_string'])
 
 # Function to recommend top N movies based on cosine similarity
